@@ -1,0 +1,31 @@
+{
+    "name": "eventflow-order-system",
+    "version": "1.0.0",
+    "description": "Event-Driven Order Processing System with Amazon EventBridge",
+    "main": "index.js",
+    "scripts": {
+        "deploy": "serverless deploy",
+        "deploy:dev": "serverless deploy --stage dev",
+        "remove": "serverless remove",
+        "logs": "serverless logs -f",
+        "invoke": "serverless invoke -f"
+    },
+    "keywords": [
+        "aws",
+        "eventbridge",
+        "microservices",
+        "serverless"
+    ],
+    "author": "",
+    "license": "MIT",
+    "devDependencies": {
+        "serverless": "^3.38.0"
+    },
+    "dependencies": {
+        "@aws-sdk/client-dynamodb": "^3.490.0",
+        "@aws-sdk/client-eventbridge": "^3.490.0",
+        "@aws-sdk/client-ses": "^3.490.0",
+        "@aws-sdk/lib-dynamodb": "^3.490.0",
+        "uuid": "^9.0.1"
+    }
+}

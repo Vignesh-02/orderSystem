@@ -1,0 +1,191 @@
+service: eventflow-order-system
+
+frameworkVersion: "3"
+
+provider:
+    name: aws
+    runtime: nodejs20.x
+    region: us-east-1
+    stage: ${opt:stage, 'dev'}
+    memorySize: 256
+    timeout: 30
+    environment:
+        STAGE: ${self:provider.stage}
+        ORDERS_TABLE: ${self:service}-orders-${self:provider.stage}
+        INVENTORY_TABLE: ${self:service}-inventory-${self:provider.stage}
+        EVENT_BUS_NAME: default
+        FROM_EMAIL: ${env:FROM_EMAIL, 'laserlikefocus000@gmail.com'}
+        TO_EMAIL: ${env:TO_EMAIL, 'saiavenue512@gmail.com'}
+    iam:
+        role:
+            statements:
+                # Order Service permissions
+                - Effect: Allow
+                  Action:
+                      - dynamodb:PutItem
+                      - dynamodb:GetItem
+                      - dynamodb:UpdateItem
+                  Resource:
+                      - arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.ORDERS_TABLE}
+                - Effect: Allow
+                  Action:
+                      - events:PutEvents
+                  Resource:
+                      - arn:aws:events:${self:provider.region}:*:event-bus/${self:provider.environment.EVENT_BUS_NAME}
+                # Inventory Service permissions
+                - Effect: Allow
+                  Action:
+                      - dynamodb:GetItem
+                      - dynamodb:UpdateItem
+                      - dynamodb:PutItem
+                  Resource:
+                      - arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.INVENTORY_TABLE}
+                # Payment Service permissions (needs to update orders and emit events)
+                - Effect: Allow
+                  Action:
+                      - dynamodb:UpdateItem
+                      - dynamodb:GetItem
+                  Resource:
+                      - arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.ORDERS_TABLE}
+                # Inventory Service needs to emit events too
+                - Effect: Allow
+                  Action:
+                      - events:PutEvents
+                  Resource:
+                      - arn:aws:events:${self:provider.region}:*:event-bus/${self:provider.environment.EVENT_BUS_NAME}
+                # Notification Service permissions (SES)
+                - Effect: Allow
+                  Action:
+                      - ses:SendEmail
+                      - ses:SendRawEmail
+                  Resource: "*"
+
+functions:
+    # Order Service - Producer
+    createOrder:
+        handler: src/order-service/handler.createOrder
+        events:
+            - http:
+                  path: orders
+                  method: post
+                  cors: true
+        environment:
+            ORDERS_TABLE: ${self:provider.environment.ORDERS_TABLE}
+            EVENT_BUS_NAME: ${self:provider.environment.EVENT_BUS_NAME}
+
+    # Payment Service - Consumer
+    processPayment:
+        handler: src/payment-service/handler.processPayment
+        events:
+            - eventBridge:
+                  pattern:
+                      source:
+                          - eventflow.orders
+                      detail-type:
+                          - OrderCreated
+        environment:
+            ORDERS_TABLE: ${self:provider.environment.ORDERS_TABLE}
+            EVENT_BUS_NAME: ${self:provider.environment.EVENT_BUS_NAME}
+
+    # Inventory Service - Consumer
+    reserveInventory:
+        handler: src/inventory-service/handler.reserveInventory
+        events:
+            - eventBridge:
+                  pattern:
+                      source:
+                          - eventflow.orders
+                      detail-type:
+                          - OrderCreated
+        environment:
+            INVENTORY_TABLE: ${self:provider.environment.INVENTORY_TABLE}
+            ORDERS_TABLE: ${self:provider.environment.ORDERS_TABLE}
+            EVENT_BUS_NAME: ${self:provider.environment.EVENT_BUS_NAME}
+
+    # Notification Service - Consumer (multiple events)
+    sendNotification:
+        handler: src/notification-service/handler.sendNotification
+        events:
+            - eventBridge:
+                  pattern:
+                      source:
+                          - eventflow.orders
+                      detail-type:
+                          - OrderCreated
+            - eventBridge:
+                  pattern:
+                      source:
+                          - eventflow.inventory
+                      detail-type:
+                          - InventoryFailed
+            - eventBridge:
+                  pattern:
+                      source:
+                          - eventflow.payment
+                      detail-type:
+                          - PaymentFailed
+        environment:
+            FROM_EMAIL: ${self:provider.environment.FROM_EMAIL}
+            TO_EMAIL: ${self:provider.environment.TO_EMAIL}
+
+resources:
+    Resources:
+        # Orders DynamoDB Table
+        OrdersTable:
+            Type: AWS::DynamoDB::Table
+            Properties:
+                TableName: ${self:provider.environment.ORDERS_TABLE}
+                BillingMode: PAY_PER_REQUEST
+                AttributeDefinitions:
+                    - AttributeName: orderId
+                      AttributeType: S
+                KeySchema:
+                    - AttributeName: orderId
+                      KeyType: HASH
+                StreamSpecification:
+                    StreamViewType: NEW_AND_OLD_IMAGES
+
+        # Inventory DynamoDB Table
+        InventoryTable:
+            Type: AWS::DynamoDB::Table
+            Properties:
+                TableName: ${self:provider.environment.INVENTORY_TABLE}
+                BillingMode: PAY_PER_REQUEST
+                AttributeDefinitions:
+                    - AttributeName: productId
+                      AttributeType: S
+                KeySchema:
+                    - AttributeName: productId
+                      KeyType: HASH
+
+    Outputs:
+        OrdersTableName:
+            Description: Orders DynamoDB Table Name
+            Value: ${self:provider.environment.ORDERS_TABLE}
+            Export:
+                Name: ${self:service}-${self:provider.stage}-OrdersTable
+
+        InventoryTableName:
+            Description: Inventory DynamoDB Table Name
+            Value: ${self:provider.environment.INVENTORY_TABLE}
+            Export:
+                Name: ${self:service}-${self:provider.stage}-InventoryTable
+
+        ApiGatewayRestApiId:
+            Description: API Gateway REST API ID
+            Value:
+                Ref: ApiGatewayRestApi
+            Export:
+                Name: ${self:service}-${self:provider.stage}-ApiGatewayRestApiId
+
+        ApiGatewayUrl:
+            Description: API Gateway URL
+            Value:
+                Fn::Join:
+                    - ""
+                    - - https://
+                      - Ref: ApiGatewayRestApi
+                      - .execute-api.
+                      - ${self:provider.region}
+                      - .amazonaws.com/
+                      - ${self:provider.stage}

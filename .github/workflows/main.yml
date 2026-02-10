@@ -1,0 +1,91 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branch:
+      - main
+      - develop
+
+env:
+  NODE_VERSION: '20'
+  AWS_REGION: us-east-1
+
+jobs:
+  
+  deploy-dev:
+    name: Deploy to Dev
+    runs-on: ubuntu-latest
+    needs: lint-and-test
+    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
+    environment:
+      name: dev
+      url: ${{ steps.deploy.outputs.api_url }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Deploy to AWS (Dev)
+        id: deploy
+        run: |
+          npx serverless deploy --stage dev --verbose
+          API_URL=$(npx serverless info --stage dev | grep -oP 'https://[^\s]+' | head -1 || echo "")
+          echo "api_url=$API_URL" >> $GITHUB_OUTPUT
+          echo "✅ Deployment completed. API URL: $API_URL"
+
+      - name: Output deployment info
+        run: |
+          echo "📊 Deployment Summary:"
+          npx serverless info --stage dev || true
+
+  
+
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run npm audit
+        run: npm audit --audit-level=moderate || true
+        continue-on-error: true
+
+      - name: Check for sensitive data
+        run: |
+          echo "🔍 Checking for potential secrets..."
+          if grep -r "AKIA" --include="*.js" --include="*.yml" --include="*.yaml" . 2>/dev/null; then
+            echo "⚠️ Warning: Potential AWS access key found"
+            exit 1
+          fi
+          if grep -r "sk_live" --include="*.js" --include="*.yml" --include="*.yaml" . 2>/dev/null; then
+            echo "⚠️ Warning: Potential secret key found"
+            exit 1
+          fi
+          echo "✅ No obvious secrets detected"
