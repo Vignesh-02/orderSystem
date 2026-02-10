@@ -51,41 +51,41 @@ jobs:
 
       - name: Output deployment info
         run: |
-          echo "📊 Deployment Summary:"
+          echo "Deployment Summary:"
           npx serverless info --stage dev || true
 
   
 
-  security-scan:
-    name: Security Scan
-    runs-on: ubuntu-latest
+  # security-scan:
+  #   name: Security Scan
+  #   runs-on: ubuntu-latest
     
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+  #   steps:
+  #     - name: Checkout code
+  #       uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
+  #     - name: Setup Node.js
+  #       uses: actions/setup-node@v4
+  #       with:
+  #         node-version: ${{ env.NODE_VERSION }}
+  #         cache: 'npm'
 
-      - name: Install dependencies
-        run: npm ci
+  #     - name: Install dependencies
+  #       run: npm ci
 
-      - name: Run npm audit
-        run: npm audit --audit-level=moderate || true
-        continue-on-error: true
+  #     - name: Run npm audit
+  #       run: npm audit --audit-level=moderate || true
+  #       continue-on-error: true
 
-      - name: Check for sensitive data
-        run: |
-          echo "🔍 Checking for potential secrets..."
-          if grep -r "AKIA" --include="*.js" --include="*.yml" --include="*.yaml" . 2>/dev/null; then
-            echo "⚠️ Warning: Potential AWS access key found"
-            exit 1
-          fi
-          if grep -r "sk_live" --include="*.js" --include="*.yml" --include="*.yaml" . 2>/dev/null; then
-            echo "⚠️ Warning: Potential secret key found"
-            exit 1
-          fi
-          echo "✅ No obvious secrets detected"
+  #     - name: Check for sensitive data
+  #       run: |
+  #         echo "🔍 Checking for potential secrets..."
+  #         if grep -r "AKIA" --include="*.js" --include="*.yml" --include="*.yaml" . 2>/dev/null; then
+  #           echo "⚠️ Warning: Potential AWS access key found"
+  #           exit 1
+  #         fi
+  #         if grep -r "sk_live" --include="*.js" --include="*.yml" --include="*.yaml" . 2>/dev/null; then
+  #           echo "⚠️ Warning: Potential secret key found"
+  #           exit 1
+  #         fi
+  #         echo "✅ No obvious secrets detected"

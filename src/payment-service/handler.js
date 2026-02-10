@@ -41,7 +41,7 @@ exports.processPayment = async (event) => {
             return;
         }
 
-        console.log(`Payment Service: Processing payment for order ${orderId}`);
+        console.log(`Payment Service: Processing payment for order ${orderId} !`);
 
         // Simulate payment processing (90% success rate for demo)
         const paymentSuccess = Math.random() > 0.1;
@@ -122,6 +122,7 @@ exports.processPayment = async (event) => {
             }),
         };
     } catch (error) {
+        
         console.error("Payment Service: Error processing payment", error);
         // In a real system, you might want to emit a PaymentFailed event here too
         throw error;
