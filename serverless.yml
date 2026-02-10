@@ -25,6 +25,7 @@ provider:
                       - dynamodb:PutItem
                       - dynamodb:GetItem
                       - dynamodb:UpdateItem
+                      - dynamodb:DeleteItem
                   Resource:
                       - arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.ORDERS_TABLE}
                 - Effect: Allow
@@ -72,6 +73,36 @@ functions:
         environment:
             ORDERS_TABLE: ${self:provider.environment.ORDERS_TABLE}
             EVENT_BUS_NAME: ${self:provider.environment.EVENT_BUS_NAME}
+
+    updateOrder:
+        handler: src/order-service/handler.updateOrder
+        events:
+            - http:
+                  path: orders/{orderId}
+                  method: patch
+                  cors: true
+        environment:
+            ORDERS_TABLE: ${self:provider.environment.ORDERS_TABLE}
+
+    getOrder:
+        handler: src/order-service/handler.getOrder
+        events:
+            - http:
+                  path: orders/{orderId}
+                  method: get
+                  cors: true
+        environment:
+            ORDERS_TABLE: ${self:provider.environment.ORDERS_TABLE}
+
+    deleteOrder:
+        handler: src/order-service/handler.deleteOrder
+        events:
+            - http:
+                  path: orders/{orderId}
+                  method: delete
+                  cors: true
+        environment:
+            ORDERS_TABLE: ${self:provider.environment.ORDERS_TABLE}
 
     # Payment Service - Consumer
     processPayment:
