@@ -1,4 +1,4 @@
-name: CI/CD Pipeline
+name: CI/CD Pipeline for order-system
 
 on:
   push:
@@ -15,8 +15,6 @@ jobs:
   deploy-dev:
     name: Deploy to Dev
     runs-on: ubuntu-latest
-    needs: lint-and-test
-    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
     environment:
       name: dev
       url: ${{ steps.deploy.outputs.api_url }}
