@@ -11,10 +11,16 @@ const {
     PutEventsCommand,
 } = require("@aws-sdk/client-eventbridge");
 const { v4: uuidv4 } = require("uuid");
+const {
+    createLogger,
+    getCorrelationIdFromHttpEvent,
+} = require("../shared/logger");
 
 const dynamoClient = new DynamoDBClient({});
 const docClient = DynamoDBDocumentClient.from(dynamoClient);
 const eventBridgeClient = new EventBridgeClient({});
+
+const logger = createLogger("OrderService");
 
 const ORDERS_TABLE = process.env.ORDERS_TABLE;
 const EVENT_BUS_NAME = process.env.EVENT_BUS_NAME || "default";
@@ -24,10 +30,11 @@ const EVENT_BUS_NAME = process.env.EVENT_BUS_NAME || "default";
  * Accepts order requests, stores order, and emits OrderCreated event
  */
 exports.createOrder = async (event) => {
-    console.log(
-        "Order Service: Received order request",
-        JSON.stringify(event, null, 2)
-    );
+    const correlationId = getCorrelationIdFromHttpEvent(event);
+
+    logger.info("Received create order request", {
+        correlationId,
+    });
 
     try {
         const body = JSON.parse(event.body || "{}");
@@ -35,6 +42,12 @@ exports.createOrder = async (event) => {
 
         // Validation
         if (!userId || !productId || !quantity || quantity <= 0) {
+            logger.warn("Validation failed for createOrder", {
+                correlationId,
+                userId,
+                productId,
+                quantity,
+            });
             return {
                 statusCode: 400,
                 headers: {
@@ -70,7 +83,13 @@ exports.createOrder = async (event) => {
             })
         );
 
-        console.log(`Order Service: Order ${orderId} saved to DynamoDB`);
+        logger.info("Order saved to DynamoDB", {
+            correlationId,
+            orderId,
+            userId,
+            productId,
+            quantity: order.quantity,
+        });
 
         // Emit OrderCreated event to EventBridge
         const eventDetail = {
@@ -80,6 +99,7 @@ exports.createOrder = async (event) => {
             quantity: order.quantity,
             timestamp,
             version: "1.0",
+            correlationId,
         };
 
         const putEventsCommand = new PutEventsCommand({
@@ -94,9 +114,10 @@ exports.createOrder = async (event) => {
         });
 
         await eventBridgeClient.send(putEventsCommand);
-        console.log(
-            `Order Service: OrderCreated event emitted for order ${orderId}`
-        );
+        logger.info("OrderCreated event emitted", {
+            correlationId,
+            orderId,
+        });
 
         return {
             statusCode: 201,
@@ -111,7 +132,10 @@ exports.createOrder = async (event) => {
             }),
         };
     } catch (error) {
-        console.error("Order Service: Error processing order", error);
+        logger.error("Error processing createOrder", {
+            correlationId: getCorrelationIdFromHttpEvent(event),
+            error,
+        });
         return {
             statusCode: 500,
             headers: {
@@ -135,10 +159,12 @@ exports.createOrder = async (event) => {
  *   Body: { "status": "PAID" }
  */
 exports.updateOrder = async (event) => {
-    console.log(
-        "Order Service: Received update order request",
-        JSON.stringify(event, null, 2)
-    );
+    const correlationId = getCorrelationIdFromHttpEvent(event);
+
+    logger.info("Received update order request", {
+        correlationId,
+        pathParameters: event.pathParameters,
+    });
 
     const headers = {
         "Content-Type": "application/json",
@@ -151,6 +177,9 @@ exports.updateOrder = async (event) => {
         const { status } = body;
 
         if (!orderId) {
+            logger.warn("Missing orderId in updateOrder", {
+                correlationId,
+            });
             return {
                 statusCode: 400,
                 headers,
@@ -161,6 +190,10 @@ exports.updateOrder = async (event) => {
         }
 
         if (!status || typeof status !== "string") {
+            logger.warn("Invalid status in updateOrder", {
+                correlationId,
+                status,
+            });
             return {
                 statusCode: 400,
                 headers,
@@ -191,9 +224,11 @@ exports.updateOrder = async (event) => {
                 })
             );
 
-            console.log(
-                `Order Service: Order ${orderId} status updated to ${status}`
-            );
+            logger.info("Order status updated", {
+                correlationId,
+                orderId,
+                status,
+            });
 
             return {
                 statusCode: 200,
@@ -205,9 +240,10 @@ exports.updateOrder = async (event) => {
             };
         } catch (err) {
             if (err.name === "ConditionalCheckFailedException") {
-                console.warn(
-                    `Order Service: Order ${orderId} not found for update`
-                );
+                logger.warn("Order not found for update", {
+                    correlationId,
+                    orderId,
+                });
                 return {
                     statusCode: 404,
                     headers,
@@ -221,7 +257,10 @@ exports.updateOrder = async (event) => {
             throw err;
         }
     } catch (error) {
-        console.error("Order Service: Error updating order", error);
+        logger.error("Error updating order", {
+            correlationId: getCorrelationIdFromHttpEvent(event),
+            error,
+        });
         return {
             statusCode: 500,
             headers,
@@ -241,10 +280,12 @@ exports.updateOrder = async (event) => {
  *   GET /orders/{orderId}
  */
 exports.getOrder = async (event) => {
-    console.log(
-        "Order Service: Received get order request",
-        JSON.stringify(event, null, 2)
-    );
+    const correlationId = getCorrelationIdFromHttpEvent(event);
+
+    logger.info("Received get order request", {
+        correlationId,
+        pathParameters: event.pathParameters,
+    });
 
     const headers = {
         "Content-Type": "application/json",
@@ -255,6 +296,9 @@ exports.getOrder = async (event) => {
         const orderId = event.pathParameters?.orderId;
 
         if (!orderId) {
+            logger.warn("Missing orderId in getOrder", {
+                correlationId,
+            });
             return {
                 statusCode: 400,
                 headers,
@@ -272,6 +316,10 @@ exports.getOrder = async (event) => {
         );
 
         if (!result.Item) {
+            logger.warn("Order not found in getOrder", {
+                correlationId,
+                orderId,
+            });
             return {
                 statusCode: 404,
                 headers,
@@ -290,7 +338,10 @@ exports.getOrder = async (event) => {
             }),
         };
     } catch (error) {
-        console.error("Order Service: Error fetching order", error);
+        logger.error("Error fetching order", {
+            correlationId: getCorrelationIdFromHttpEvent(event),
+            error,
+        });
         return {
             statusCode: 500,
             headers,
@@ -310,10 +361,12 @@ exports.getOrder = async (event) => {
  *   DELETE /orders/{orderId}
  */
 exports.deleteOrder = async (event) => {
-    console.log(
-        "Order Service: Received delete order request",
-        JSON.stringify(event, null, 2)
-    );
+    const correlationId = getCorrelationIdFromHttpEvent(event);
+
+    logger.info("Received delete order request", {
+        correlationId,
+        pathParameters: event.pathParameters,
+    });
 
     const headers = {
         "Content-Type": "application/json",
@@ -324,6 +377,9 @@ exports.deleteOrder = async (event) => {
         const orderId = event.pathParameters?.orderId;
 
         if (!orderId) {
+            logger.warn("Missing orderId in deleteOrder", {
+                correlationId,
+            });
             return {
                 statusCode: 400,
                 headers,
@@ -343,6 +399,10 @@ exports.deleteOrder = async (event) => {
             );
         } catch (err) {
             if (err.name === "ConditionalCheckFailedException") {
+                logger.warn("Order not found in deleteOrder", {
+                    correlationId,
+                    orderId,
+                });
                 return {
                     statusCode: 404,
                     headers,
@@ -355,6 +415,11 @@ exports.deleteOrder = async (event) => {
             throw err;
         }
 
+        logger.info("Order deleted", {
+            correlationId,
+            orderId,
+        });
+
         return {
             statusCode: 200,
             headers,
@@ -364,7 +429,10 @@ exports.deleteOrder = async (event) => {
             }),
         };
     } catch (error) {
-        console.error("Order Service: Error deleting order", error);
+        logger.error("Error deleting order", {
+            correlationId: getCorrelationIdFromHttpEvent(event),
+            error,
+        });
         return {
             statusCode: 500,
             headers,

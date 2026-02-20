@@ -1,23 +1,35 @@
 const { SESClient, SendEmailCommand } = require("@aws-sdk/client-ses");
+const {
+    createLogger,
+    getCorrelationIdFromEventBridge,
+} = require("../shared/logger");
 
 const sesClient = new SESClient({});
 
 const FROM_EMAIL = process.env.FROM_EMAIL || "noreply@example.com";
 const TO_EMAIL = process.env.TO_EMAIL || "user@example.com";
 
+const logger = createLogger("NotificationService");
+
 /**
  * Notification Service - Consumer
  * Listens to multiple event types and sends notifications via SES
  */
 exports.sendNotification = async (event) => {
-    console.log(
-        "Notification Service: Received event",
-        JSON.stringify(event, null, 2)
-    );
+    const record = event.Records?.[0] || event;
+    const correlationId = getCorrelationIdFromEventBridge(record);
+
+    logger.info("Received event for notification", {
+        correlationId,
+        rawEvent: {
+            id: record.id,
+            source: record.source,
+            "detail-type": record["detail-type"],
+        },
+    });
 
     try {
         // EventBridge sends events in Records format
-        const record = event.Records?.[0] || event;
         const detail =
             typeof record.detail === "string"
                 ? JSON.parse(record.detail)
@@ -59,14 +71,18 @@ exports.sendNotification = async (event) => {
                 }`;
         }
 
-        // Log notification
-        console.log("=".repeat(80));
-        console.log(`🔔 NOTIFICATION [${notificationType}]`);
-        console.log(notificationMessage);
-        console.log(`   Source: ${source}`);
-        console.log(`   Detail Type: ${detailType}`);
-        console.log(`   Timestamp: ${new Date().toISOString()}`);
-        console.log("=".repeat(80));
+        // Structured log for notification
+        logger.info("Prepared notification", {
+            correlationId,
+            notificationType,
+            notificationMessage,
+            source,
+            detailType,
+            orderId: orderId || "N/A",
+            userId: userId || "N/A",
+            productId: productId || "N/A",
+            quantity: quantity || "N/A",
+        });
 
         // Send email via SES
         const emailSubject = `EventFlow Notification: ${detailType}`;
@@ -149,20 +165,17 @@ EventFlow System
             });
 
             const emailResponse = await sesClient.send(sendEmailCommand);
-            console.log(
-                `✅ Email sent successfully via SES. MessageId: ${emailResponse.MessageId}`
-            );
+            logger.info("Email sent via SES", {
+                correlationId,
+                messageId: emailResponse.MessageId,
+            });
         } catch (emailError) {
             // Log email error but don't fail the notification service
             // This ensures notification failures don't break the system
-            console.error(
-                "⚠️ Failed to send email via SES:",
-                emailError.message
-            );
-            console.error(
-                "Email error details:",
-                JSON.stringify(emailError, null, 2)
-            );
+            logger.error("Failed to send email via SES", {
+                correlationId,
+                error: emailError,
+            });
 
             // Common SES errors:
             // - Email address not verified (in sandbox mode)
@@ -180,10 +193,12 @@ EventFlow System
             }),
         };
     } catch (error) {
-        console.error(
-            "Notification Service: Error sending notification",
-            error
-        );
+        logger.error("Error in NotificationService", {
+            correlationId: getCorrelationIdFromEventBridge(
+                event.Records?.[0] || event
+            ),
+            error,
+        });
         // Notification failures should not break the system
         // Just log and continue
         return {

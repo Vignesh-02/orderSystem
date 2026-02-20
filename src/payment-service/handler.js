@@ -8,6 +8,7 @@ const {
     EventBridgeClient,
     PutEventsCommand,
 } = require("@aws-sdk/client-eventbridge");
+const { createLogger, getCorrelationIdFromEventBridge } = require("../shared/logger");
 
 const dynamoClient = new DynamoDBClient({});
 const docClient = DynamoDBDocumentClient.from(dynamoClient);
@@ -16,19 +17,27 @@ const eventBridgeClient = new EventBridgeClient({});
 const ORDERS_TABLE = process.env.ORDERS_TABLE;
 const EVENT_BUS_NAME = process.env.EVENT_BUS_NAME || "default";
 
+const logger = createLogger("PaymentService");
+
 /**
  * Payment Service - Consumer
  * Listens to OrderCreated events and processes payment
  */
 exports.processPayment = async (event) => {
-    console.log(
-        "Payment Service: Received event",
-        JSON.stringify(event, null, 2)
-    );
+    const record = event.Records?.[0] || event;
+    const correlationId = getCorrelationIdFromEventBridge(record);
+
+    logger.info("Received OrderCreated event", {
+        correlationId,
+        rawEvent: {
+            id: record.id,
+            source: record.source,
+            "detail-type": record["detail-type"],
+        },
+    });
 
     try {
         // EventBridge sends events in Records format
-        const record = event.Records?.[0] || event;
         const detail =
             typeof record.detail === "string"
                 ? JSON.parse(record.detail)
@@ -37,11 +46,20 @@ exports.processPayment = async (event) => {
         const { orderId, userId, productId, quantity, version } = detail;
 
         if (!orderId) {
-            console.error("Payment Service: Missing orderId in event detail");
+            logger.error("Missing orderId in PaymentService detail", {
+                correlationId,
+                detail,
+            });
             return;
         }
 
-        console.log(`Payment Service: Processing payment for order ${orderId} !`);
+        logger.info("Processing payment", {
+            correlationId,
+            orderId,
+            userId,
+            productId,
+            quantity,
+        });
 
         // Simulate payment processing (90% success rate for demo)
         const paymentSuccess = Math.random() > 0.1;
@@ -64,12 +82,16 @@ exports.processPayment = async (event) => {
                 })
             );
 
-            console.log(
-                `Payment Service: Payment successful for order ${orderId}`
-            );
+            logger.info("Payment successful", {
+                correlationId,
+                orderId,
+            });
         } else {
             // Payment failed - emit PaymentFailed event
-            console.log(`Payment Service: Payment failed for order ${orderId}`);
+            logger.warn("Payment failed", {
+                correlationId,
+                orderId,
+            });
 
             const paymentFailedEvent = {
                 orderId,
@@ -79,6 +101,7 @@ exports.processPayment = async (event) => {
                 reason: "Payment processing failed",
                 timestamp: new Date().toISOString(),
                 version: "1.0",
+                correlationId,
             };
 
             await eventBridgeClient.send(
@@ -122,8 +145,12 @@ exports.processPayment = async (event) => {
             }),
         };
     } catch (error) {
-        
-        console.error("Payment Service: Error processing payment", error);
+        logger.error("Error processing payment", {
+            correlationId: getCorrelationIdFromEventBridge(
+                event.Records?.[0] || event
+            ),
+            error,
+        });
         // In a real system, you might want to emit a PaymentFailed event here too
         throw error;
     }

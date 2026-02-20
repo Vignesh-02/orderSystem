@@ -307,7 +307,7 @@ serverless remove --stage dev
 
 ## 🐛 Troubleshooting
 
-1. **Events not triggering**: Check EventBridge rules in AWS Console
+1. **Events not triggering**: Check EventBridge rules in AWS Console!
 2. **Permission errors**: Verify IAM roles have correct permissions
 3. **DynamoDB errors**: Ensure tables are created (check CloudFormation stack)
 4. **API Gateway CORS**: CORS is enabled by default in the configuration
@@ -320,4 +320,3 @@ serverless remove --stage dev
 
 ---
 
-**Built with ❤️ using AWS Serverless Architecture**
